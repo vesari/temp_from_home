@@ -4,15 +4,34 @@ import (
 	"fmt"
 	"io/ioutil"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 func formatPlayers(g game) string {
 	playersList := ""
-	for _, player := range g.players {
-		playersList = fmt.Sprintf("%v\"%v\"", playersList, player)
+	for i, player := range g.players {
+		prefix := ""
+		if i > 0 {
+			prefix = ", "
+		}
+		playersList = fmt.Sprintf("%v%v\"%v\"", playersList, prefix, player)
 	}
 	return playersList
+}
+
+func initializePlayer(g *game, name string) {
+	foundPlayer := false
+	for _, p := range g.players {
+		if name == p {
+			foundPlayer = true
+			break
+		}
+	}
+	if !foundPlayer {
+		g.players = append(g.players, name)
+		g.scoreboard[name] = 0
+	}
 }
 
 func check(e error) {
@@ -29,6 +48,7 @@ type game struct {
 }
 
 var reClientChanged = regexp.MustCompile("ClientUserinfoChanged: .+ n\\\\([^\\\\]+)")
+var reKill = regexp.MustCompile("Kill: .+: (.+) killed (.+) by (.+)")
 
 func main() {
 	content, err := ioutil.ReadFile("prova.txt")
@@ -51,28 +71,33 @@ func main() {
 				scoreboard: make(map[string]int),
 			})
 			//fmt.Printf("the current game is now %v\n", currentGame)
-		}
-		if strings.Contains(line, "killed") {
-
-			g.kills = g.kills + 1
-			fmt.Printf("Found a kill: %v, %v\n", g.id, g.kills)
-
 		} else if m := reClientChanged.FindStringSubmatch(line); m != nil {
 			name := m[1]
-			fmt.Printf("Found name %v\n", name)
+			// fmt.Printf("Found name %v\n", name)
 			if g != nil {
-				foundPlayer := false
-				for _, p := range g.players {
-					if name == p {
-						foundPlayer = true
-						break
-					}
-				}
-				if !foundPlayer {
-					g.players = append(g.players, name)
-					g.scoreboard[name] = 0
-				}
+				initializePlayer(g, name)
 			}
+		} else if m := reKill.FindStringSubmatch(line); m != nil {
+			g.kills = g.kills + 1
+			killer := m[1]
+			victim := m[2]
+			//mode := m[3]
+			if g != nil {
+				fmt.Printf("Found kill, killer: %v, victim: %v\n", killer, victim)
+				initializePlayer(g, victim)
+				if killer != "<world>" {
+					initializePlayer(g, killer)
+					if killer != victim {
+						g.scoreboard[killer]++
+					}
+
+				} else {
+					g.scoreboard[victim]--
+
+				}
+
+			}
+
 		}
 	}
 	for _, game := range table {
@@ -80,8 +105,15 @@ func main() {
 		fmt.Printf("  Kills: %v\n", game.kills)
 		fmt.Printf("  Players: %v\n", formatPlayers(game))
 		fmt.Printf("  Scoreboard:\n")
-		for k, v := range game.scoreboard {
-			fmt.Printf("    \"%v\": %v\n", k, v)
+		players := make([]string, len(game.players))
+		copy(players, game.players)
+		sort.Slice(players, func(a, b int) bool {
+			playerNameA := players[a]
+			playerNameB := players[b]
+			return game.scoreboard[playerNameA] > game.scoreboard[playerNameB]
+		})
+		for _, p := range players {
+			fmt.Printf("    \"%v\": %v\n", p, game.scoreboard[p])
 		}
 	}
 
